@@ -1,0 +1,10 @@
+name: CrystalPvPDisabler
+version: 1.0.0
+main: com.starmaster.crystalpvpdisabler.CrystalPvPDisabler
+api-version: 1.21
+author: StarMaster3135
+description: Disables end crystal and respawn anchor damage to players while preserving all other functionality
+website: 
+
+# Paper-specific features
+folia-supported: true
