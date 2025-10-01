@@ -39,12 +39,12 @@ public class CrystalPvPDisabler extends JavaPlugin implements Listener {
             }
         }.runTaskTimer(this, 600L, 600L); // 30 seconds
         
-        getLogger().info("CrystalPvPDisabler has been enabled! End crystals and respawn anchors can no longer damage players.");
+
     }
 
     @Override
     public void onDisable() {
-        getLogger().info("CrystalPvPDisabler has been disabled.");
+
     }
 
     /**
@@ -56,9 +56,7 @@ public class CrystalPvPDisabler extends JavaPlugin implements Listener {
             event.getClickedBlock() != null && 
             event.getClickedBlock().getType() == Material.RESPAWN_ANCHOR) {
             
-            // Track this interaction
             recentAnchorInteraction.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
-            getLogger().info("Player " + event.getPlayer().getName() + " interacted with respawn anchor");
         }
     }
 
@@ -68,7 +66,7 @@ public class CrystalPvPDisabler extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.HIGH)
     public void onEntityExplode(EntityExplodeEvent event) {
         if (event.getEntity().getType() == EntityType.END_CRYSTAL) {
-            getLogger().info("End crystal explosion detected");
+            // End crystal explosion detected
         }
     }
 
@@ -78,8 +76,6 @@ public class CrystalPvPDisabler extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.HIGH)
     public void onBlockExplode(BlockExplodeEvent event) {
         if (event.getBlock().getType() == Material.RESPAWN_ANCHOR) {
-            getLogger().info("Respawn anchor block explosion detected");
-            
             // Get all nearby players and mark them for protection
             event.getBlock().getLocation().getNearbyPlayers(10.0).forEach(player -> {
                 recentAnchorInteraction.put(player.getUniqueId(), System.currentTimeMillis());
@@ -95,7 +91,6 @@ public class CrystalPvPDisabler extends JavaPlugin implements Listener {
         if (event.getEntity() instanceof Player) {
             if (event.getDamager().getType() == EntityType.END_CRYSTAL) {
                 event.setCancelled(true);
-                getLogger().info("Blocked end crystal damage to player: " + event.getEntity().getName());
             }
         }
     }
@@ -112,9 +107,6 @@ public class CrystalPvPDisabler extends JavaPlugin implements Listener {
         Player player = (Player) event.getEntity();
         EntityDamageEvent.DamageCause cause = event.getCause();
         
-        // Always log damage for debugging
-        getLogger().info("Player " + player.getName() + " took " + event.getFinalDamage() + " damage from: " + cause);
-        
         // Check if this player recently interacted with a respawn anchor
         UUID playerId = player.getUniqueId();
         Long lastInteraction = recentAnchorInteraction.get(playerId);
@@ -122,23 +114,19 @@ public class CrystalPvPDisabler extends JavaPlugin implements Listener {
         if (lastInteraction != null && 
             System.currentTimeMillis() - lastInteraction < INTERACTION_COOLDOWN) {
             
-            // Block any explosion damage if they recently interacted with an anchor
             if (cause == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION ||
                 cause == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION) {
                 
                 event.setCancelled(true);
-                getLogger().info("Blocked potential respawn anchor damage to player: " + player.getName());
                 return;
             }
         }
         
-        // Alternative approach: Check for nearby respawn anchors for any explosion damage
         if (cause == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION ||
             cause == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION) {
             
             if (isNearbyRespawnAnchor(player)) {
                 event.setCancelled(true);
-                getLogger().info("Blocked explosion damage near respawn anchor to player: " + player.getName());
             }
         }
     }
