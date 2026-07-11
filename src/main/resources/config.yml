@@ -1,0 +1,6 @@
+# CrystalPvPDisabler configuration
+
+# Whether to send anonymous usage statistics to bStats (https://bstats.org).
+# This only shares things like server count, player count, and MC/plugin version.
+# Set to false to disable it completely.
+enable-metrics: true
