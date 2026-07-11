@@ -1,6 +1,10 @@
 package com.starmaster.crystalpvpdisabler;
 
+import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.block.data.type.RespawnAnchor;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -14,6 +18,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.block.Action;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bstats.bukkit.Metrics;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -21,23 +26,34 @@ import java.util.UUID;
 
 public class CrystalPvPDisabler extends JavaPlugin implements Listener {
 
-    // Track players who recently interacted with respawn anchors
+    private static final int BSTATS_PLUGIN_ID = 32535;
+
     private final Map<UUID, Long> recentAnchorInteraction = new HashMap<>();
-    private final long INTERACTION_COOLDOWN = 5000; // 5 seconds
+    private final long INTERACTION_COOLDOWN = 300;
+
+    private final Map<Location, Long> pendingAnchorExplosions = new HashMap<>();
+    private final long PENDING_EXPLOSION_WINDOW = 3000;
 
     @Override
     public void onEnable() {
         getServer().getPluginManager().registerEvents(this, this);
-        
-        // Clean up old interactions every 30 seconds
+
+        saveDefaultConfig();
+
+        if (getConfig().getBoolean("enable-metrics", true)) {
+            new Metrics(this, BSTATS_PLUGIN_ID);
+        }
+
         new BukkitRunnable() {
             @Override
             public void run() {
                 long currentTime = System.currentTimeMillis();
                 recentAnchorInteraction.entrySet().removeIf(entry -> 
                     currentTime - entry.getValue() > INTERACTION_COOLDOWN);
+                pendingAnchorExplosions.entrySet().removeIf(entry ->
+                    currentTime - entry.getValue() > PENDING_EXPLOSION_WINDOW);
             }
-        }.runTaskTimer(this, 600L, 600L); // 30 seconds
+        }.runTaskTimer(this, 600L, 600L);
         
 
     }
@@ -47,45 +63,45 @@ public class CrystalPvPDisabler extends JavaPlugin implements Listener {
 
     }
 
-    /**
-     * Track when players interact with respawn anchors
-     */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerInteract(PlayerInteractEvent event) {
         if (event.getAction() == Action.RIGHT_CLICK_BLOCK && 
             event.getClickedBlock() != null && 
             event.getClickedBlock().getType() == Material.RESPAWN_ANCHOR) {
-            
-            recentAnchorInteraction.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
+
+            Block anchor = event.getClickedBlock();
+
+            pendingAnchorExplosions.put(anchor.getLocation(), System.currentTimeMillis());
+            boolean isCharged = anchor.getBlockData() instanceof RespawnAnchor respawnAnchor && respawnAnchor.getCharges() > 0;
+            boolean willExplode = isCharged && event.getPlayer().getWorld().getEnvironment() != World.Environment.NETHER;
+            if (willExplode) {
+                anchor.getLocation().getNearbyPlayers(10.0).forEach(nearby ->
+                    recentAnchorInteraction.put(nearby.getUniqueId(), System.currentTimeMillis()));
+            }
         }
     }
 
-    /**
-     * Handle end crystal explosions
-     */
     @EventHandler(priority = EventPriority.HIGH)
     public void onEntityExplode(EntityExplodeEvent event) {
         if (event.getEntity().getType() == EntityType.END_CRYSTAL) {
-            // End crystal explosion detected
         }
     }
 
-    /**
-     * Handle respawn anchor explosions (block-based)
-     */
     @EventHandler(priority = EventPriority.HIGH)
     public void onBlockExplode(BlockExplodeEvent event) {
-        if (event.getBlock().getType() == Material.RESPAWN_ANCHOR) {
-            // Get all nearby players and mark them for protection
-            event.getBlock().getLocation().getNearbyPlayers(10.0).forEach(player -> {
+        Location explodedLocation = event.getBlock().getLocation();
+        Long interactionTime = pendingAnchorExplosions.remove(explodedLocation);
+
+        boolean isAnchorExplosion = event.getBlock().getType() == Material.RESPAWN_ANCHOR ||
+            (interactionTime != null && System.currentTimeMillis() - interactionTime < PENDING_EXPLOSION_WINDOW);
+
+        if (isAnchorExplosion) {
+            explodedLocation.getNearbyPlayers(10.0).forEach(player -> {
                 recentAnchorInteraction.put(player.getUniqueId(), System.currentTimeMillis());
             });
         }
     }
 
-    /**
-     * Handle end crystal damage
-     */
     @EventHandler(priority = EventPriority.HIGH)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
         if (event.getEntity() instanceof Player) {
@@ -95,9 +111,6 @@ public class CrystalPvPDisabler extends JavaPlugin implements Listener {
         }
     }
 
-    /**
-     * Comprehensive damage handler - catches ALL damage types
-     */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player)) {
@@ -106,54 +119,15 @@ public class CrystalPvPDisabler extends JavaPlugin implements Listener {
         
         Player player = (Player) event.getEntity();
         EntityDamageEvent.DamageCause cause = event.getCause();
-        
-        // Check if this player recently interacted with a respawn anchor
+
         UUID playerId = player.getUniqueId();
         Long lastInteraction = recentAnchorInteraction.get(playerId);
         
         if (lastInteraction != null && 
-            System.currentTimeMillis() - lastInteraction < INTERACTION_COOLDOWN) {
-            
-            if (cause == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION ||
-                cause == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION) {
-                
-                event.setCancelled(true);
-                return;
-            }
-        }
-        
-        if (cause == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION ||
-            cause == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION) {
-            
-            if (isNearbyRespawnAnchor(player)) {
-                event.setCancelled(true);
-            }
-        }
-    }
+            System.currentTimeMillis() - lastInteraction < INTERACTION_COOLDOWN &&
+            cause == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION) {
 
-    /**
-     * Check for nearby respawn anchors
-     */
-    private boolean isNearbyRespawnAnchor(Player player) {
-        int radius = 10; // Larger radius to be safe
-        
-        for (int x = -radius; x <= radius; x++) {
-            for (int y = -radius; y <= radius; y++) {
-                for (int z = -radius; z <= radius; z++) {
-                    double distance = Math.sqrt(x*x + y*y + z*z);
-                    if (distance > radius) continue;
-                    
-                    try {
-                        Material blockType = player.getLocation().clone().add(x, y, z).getBlock().getType();
-                        if (blockType == Material.RESPAWN_ANCHOR) {
-                            return true;
-                        }
-                    } catch (Exception e) {
-                        continue;
-                    }
-                }
-            }
+            event.setCancelled(true);
         }
-        return false;
     }
 }
