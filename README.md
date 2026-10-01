@@ -16,3 +16,12 @@ Tired of people using end crystals and respawn anchors in fights? This plugin di
 ## Features
 - **Zero config** - Drop in and go
 - **Ultra lightweight** - Doesn't lag your server
+- **Works everywhere** - Paper, Folia and Spigot
+
+## Building
+
+```bash
+mvn clean package
+```
+
+The jar ends up in `target/`.
